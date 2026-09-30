@@ -1,6 +1,12 @@
 from ollama import chat
 
 from models import SupportDecision
+from tools import (
+    create_ticket,
+    request_refund_review,
+    lookup_order,
+    escalate_to_human
+)
 
 
 def analyze_request(customer_message: str) -> SupportDecision:
@@ -14,37 +20,33 @@ You are an AI customer support triage system.
 
 Analyze the customer's request and return a structured decision.
 
-Rules:
-
 Intent:
 - refund_request: refunds, duplicate charges, billing refunds
 - account_access: login, password, locked account
 - order_status: shipping, delivery, order tracking
-- subscription_issue: cancellation, renewal, subscription problem
+- subscription_issue: cancellation, renewal, subscription issue
 - general_support: anything else
 
 Priority:
-- low: informational or minor issue
+- low: informational/minor
 - medium: normal support issue
 - high: financial loss, repeated failure, or urgent impact
 
 Risk:
 - low: simple informational request
-- medium: financial or account-related issue
+- medium: financial or account issue
 - high: sensitive or potentially damaging action
 
 Human approval:
-- Refunds require human approval.
-- High-risk cases require human approval.
+- Refunds require human approval
+- High-risk cases require human approval
 
 Recommended action:
-Choose exactly one:
 - create_ticket
 - request_refund_review
 - lookup_order
 - escalate_to_human
 
-Return the result as JSON matching the required schema.
 Keep reasoning short.
 """
             },
@@ -53,47 +55,59 @@ Keep reasoning short.
                 "content": customer_message
             }
         ],
-
-        # THIS is the structured-output part
         format=SupportDecision.model_json_schema(),
-
-        # Makes the response more deterministic
-        options={
-            "temperature": 0
-        }
+        options={"temperature": 0}
     )
 
-    # Convert returned JSON into our validated Pydantic object
-    decision = SupportDecision.model_validate_json(
+    return SupportDecision.model_validate_json(
         response.message.content
     )
 
-    return decision
+
+def route_action(decision: SupportDecision):
+
+    if decision.recommended_action == "create_ticket":
+        return create_ticket()
+
+    elif decision.recommended_action == "request_refund_review":
+        return request_refund_review()
+
+    elif decision.recommended_action == "lookup_order":
+        return lookup_order()
+
+    elif decision.recommended_action == "escalate_to_human":
+        return escalate_to_human()
+
+    else:
+        return "No valid action found."
 
 
-if __name__ == "__main__":
+def run_support_router(customer_message: str):
 
-    customer_message = """
-    I was charged twice for my order.
-    Each charge was $84 and I want my money back.
-    """
+    print("\n--- CUSTOMER REQUEST ---")
+    print(customer_message)
 
     decision = analyze_request(customer_message)
 
-    print("\n--- CUSTOMER REQUEST ---")
-    print(customer_message.strip())
-
-    print("\n--- SUPPORT DECISION ---")
+    print("\n--- AI DECISION ---")
     print(f"Intent: {decision.intent}")
     print(f"Priority: {decision.priority}")
     print(f"Amount: {decision.amount}")
     print(f"Risk Level: {decision.risk_level}")
-    print(
-        f"Human Approval: "
-        f"{decision.requires_human_approval}"
-    )
-    print(
-        f"Recommended Action: "
-        f"{decision.recommended_action}"
-    )
+    print(f"Human Approval: {decision.requires_human_approval}")
+    print(f"Recommended Action: {decision.recommended_action}")
     print(f"Reasoning: {decision.reasoning}")
+
+    result = route_action(decision)
+
+    print("\n--- TOOL EXECUTION ---")
+    print(result)
+
+
+if __name__ == "__main__":
+
+    customer_message = input(
+        "\nEnter customer request: "
+    )
+
+    run_support_router(customer_message)
